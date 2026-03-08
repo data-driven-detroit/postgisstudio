@@ -5,7 +5,14 @@ if ("serviceWorker" in navigator) {
 }
 
 // --- Constants ---
-const COLORS = ['#a7c080', '#83c092', '#7fbbb3', '#dbbc7f', '#d699b6', '#e69875'];
+const COLORS = [
+    '#a7c080',
+    '#7fbbb3',
+    '#83c092',
+    '#d699b6',
+    '#dbbc7f',
+    '#e69875',
+];
 const RAMP = [
   [127, 187, 179],  // --blue   #7fbbb3
   [131, 192, 146],  // --aqua   #83c092
