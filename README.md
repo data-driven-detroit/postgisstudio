@@ -15,7 +15,8 @@ A web app for running PostGIS queries and visualizing geometry results on a Leaf
 
 ## Setup
 
-Clone this folder (not tested on Windows, but works well with wsl)
+Clone this project (not tested on Windows, but works well with wsl)
+`cd` into the cloned directory
 
 ```sh
 cp .env.example .env
