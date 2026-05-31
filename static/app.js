@@ -101,8 +101,7 @@ const MapSettings = L.Control.extend({
     L.DomEvent.disableClickPropagation(wrap);
     L.DomEvent.disableScrollPropagation(wrap);
 
-    const panel = L.DomUtil.create('div', 'map-settings-panel', wrap);
-    panel.hidden = true;
+    const panel = L.DomUtil.create('div', 'map-settings-panel collapsed', wrap);
 
     const row = L.DomUtil.create('div', 'palette-row', panel);
     PALETTES.forEach((p, i) => {
@@ -124,8 +123,8 @@ const MapSettings = L.Control.extend({
     toggle.textContent = '\u25B8';
     toggle.title = 'Map settings';
     toggle.addEventListener('click', () => {
-      panel.hidden = !panel.hidden;
-      toggle.textContent = panel.hidden ? '\u25B8' : '\u25C2';
+      panel.classList.toggle('collapsed');
+      toggle.textContent = panel.classList.contains('collapsed') ? '\u25B8' : '\u25C2';
     });
 
     return wrap;
@@ -951,7 +950,124 @@ function switchPalette(index, skipLayers) {
   });
 }
 
-async function exportPNG() {
+function projectCoord(coord) {
+  const pt = map.latLngToContainerPoint(L.latLng(coord[1], coord[0]));
+  return [pt.x, pt.y];
+}
+
+function drawGeometryOnCanvas(ctx, feature, layerObj) {
+  const geom = feature.geometry;
+  if (!geom) return;
+  const color = featureColor(feature, layerObj);
+  const hasSym = !!layerObj.symbologyMeta;
+
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 2;
+  ctx.lineJoin = 'round';
+
+  const drawPoint = (coord) => {
+    const [x, y] = projectCoord(coord);
+    ctx.beginPath();
+    ctx.arc(x, y, 6, 0, Math.PI * 2);
+    ctx.globalAlpha = hasSym ? 0.7 : 0.5;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.stroke();
+  };
+
+  const drawLine = (coords) => {
+    if (coords.length < 2) return;
+    const pts = coords.map(projectCoord);
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.stroke();
+  };
+
+  const drawPolygon = (rings) => {
+    ctx.beginPath();
+    for (const ring of rings) {
+      const pts = ring.map(projectCoord);
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      ctx.closePath();
+    }
+    ctx.globalAlpha = hasSym ? 0.5 : 0.15;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.stroke();
+  };
+
+  switch (geom.type) {
+    case 'Point': drawPoint(geom.coordinates); break;
+    case 'MultiPoint': geom.coordinates.forEach(drawPoint); break;
+    case 'LineString': drawLine(geom.coordinates); break;
+    case 'MultiLineString': geom.coordinates.forEach(drawLine); break;
+    case 'Polygon': drawPolygon(geom.coordinates); break;
+    case 'MultiPolygon': geom.coordinates.forEach(drawPolygon); break;
+  }
+  ctx.globalAlpha = 1;
+}
+
+function featureToSVGEl(ns, feature, layerObj) {
+  const geom = feature.geometry;
+  if (!geom) return null;
+  const color = featureColor(feature, layerObj);
+  const hasSym = !!layerObj.symbologyMeta;
+
+  const makeCircle = (coord) => {
+    const [x, y] = projectCoord(coord);
+    const el = document.createElementNS(ns, 'circle');
+    el.setAttribute('cx', x); el.setAttribute('cy', y); el.setAttribute('r', 6);
+    el.setAttribute('fill', color); el.setAttribute('fill-opacity', hasSym ? 0.7 : 0.5);
+    el.setAttribute('stroke', color); el.setAttribute('stroke-width', 2);
+    return el;
+  };
+
+  const coordsToD = (coords) => coords.map((c, i) => {
+    const [x, y] = projectCoord(c);
+    return (i === 0 ? 'M' : 'L') + x + ' ' + y;
+  }).join(' ');
+
+  const makeLine = (coords) => {
+    const el = document.createElementNS(ns, 'path');
+    el.setAttribute('d', coordsToD(coords));
+    el.setAttribute('fill', 'none');
+    el.setAttribute('stroke', color); el.setAttribute('stroke-width', 2);
+    el.setAttribute('stroke-linejoin', 'round');
+    return el;
+  };
+
+  const makePoly = (rings) => {
+    const d = rings.map(r => coordsToD(r) + ' Z').join(' ');
+    const el = document.createElementNS(ns, 'path');
+    el.setAttribute('d', d);
+    el.setAttribute('fill', color); el.setAttribute('fill-opacity', hasSym ? 0.5 : 0.15);
+    el.setAttribute('stroke', color); el.setAttribute('stroke-width', 2);
+    el.setAttribute('stroke-linejoin', 'round');
+    return el;
+  };
+
+  const wrapMulti = (els) => {
+    if (els.length === 1) return els[0];
+    const g = document.createElementNS(ns, 'g');
+    els.forEach(e => g.appendChild(e));
+    return g;
+  };
+
+  switch (geom.type) {
+    case 'Point': return makeCircle(geom.coordinates);
+    case 'MultiPoint': return wrapMulti(geom.coordinates.map(makeCircle));
+    case 'LineString': return makeLine(geom.coordinates);
+    case 'MultiLineString': return wrapMulti(geom.coordinates.map(makeLine));
+    case 'Polygon': return makePoly(geom.coordinates);
+    case 'MultiPolygon': return wrapMulti(geom.coordinates.map(makePoly));
+    default: return null;
+  }
+}
+
+function exportPNG() {
   setStatus('Exporting PNG...');
   const mapEl = document.getElementById('map');
   const rect = mapEl.getBoundingClientRect();
@@ -972,27 +1088,10 @@ async function exportPNG() {
     } catch (e) { /* skip CORS-blocked tiles */ }
   }
 
-  // SVG overlay (vector layers)
-  const svg = mapEl.querySelector('.leaflet-overlay-pane svg');
-  if (svg) {
-    const svgClone = svg.cloneNode(true);
-    svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-    const data = new XMLSerializer().serializeToString(svgClone);
-    const blob = new Blob([data], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    try {
-      await new Promise((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => {
-          const sr = svg.getBoundingClientRect();
-          ctx.drawImage(img, sr.left - rect.left, sr.top - rect.top, sr.width, sr.height);
-          resolve();
-        };
-        img.onerror = reject;
-        img.src = url;
-      });
-    } catch (e) { /* SVG render failed */ }
-    URL.revokeObjectURL(url);
+  // Geometry from layer data
+  for (const layer of layers) {
+    if (!layer.visible || !layer.geojsonData?.features) continue;
+    for (const f of layer.geojsonData.features) drawGeometryOnCanvas(ctx, f, layer);
   }
 
   canvas.toBlob((b) => {
@@ -1006,7 +1105,7 @@ async function exportPNG() {
   }, 'image/png');
 }
 
-async function exportSVG() {
+function exportSVG() {
   setStatus('Exporting SVG...');
   const mapEl = document.getElementById('map');
   const rect = mapEl.getBoundingClientRect();
@@ -1022,16 +1121,13 @@ async function exportSVG() {
   root.setAttribute('height', h);
   root.setAttribute('viewBox', `0 0 ${w} ${h}`);
 
-  // Clip everything to the map bounds
+  // Clip to map bounds
   const defs = document.createElementNS(ns, 'defs');
-  const clipPath = document.createElementNS(ns, 'clipPath');
-  clipPath.setAttribute('id', 'map-clip');
-  const clipRect = document.createElementNS(ns, 'rect');
-  clipRect.setAttribute('width', w);
-  clipRect.setAttribute('height', h);
-  clipPath.appendChild(clipRect);
-  defs.appendChild(clipPath);
-  root.appendChild(defs);
+  const cp = document.createElementNS(ns, 'clipPath');
+  cp.setAttribute('id', 'map-clip');
+  const cr = document.createElementNS(ns, 'rect');
+  cr.setAttribute('width', w); cr.setAttribute('height', h);
+  cp.appendChild(cr); defs.appendChild(cp); root.appendChild(defs);
 
   const clipped = document.createElementNS(ns, 'g');
   clipped.setAttribute('clip-path', 'url(#map-clip)');
@@ -1039,8 +1135,7 @@ async function exportSVG() {
 
   // Background
   const bg = document.createElementNS(ns, 'rect');
-  bg.setAttribute('width', w);
-  bg.setAttribute('height', h);
+  bg.setAttribute('width', w); bg.setAttribute('height', h);
   bg.setAttribute('fill', '#1a1f22');
   clipped.appendChild(bg);
 
@@ -1068,19 +1163,20 @@ async function exportSVG() {
     } catch (e) { /* skip CORS-blocked tiles */ }
   }
 
-  // Copy vector geometry as editable SVG paths
-  const svg = mapEl.querySelector('.leaflet-overlay-pane svg');
-  if (svg) {
-    const sr = svg.getBoundingClientRect();
-    const ox = sr.left - rect.left;
-    const oy = sr.top - rect.top;
-    const geoGroup = document.createElementNS(ns, 'g');
-    geoGroup.setAttribute('id', 'geometry');
-    geoGroup.setAttribute('transform', `translate(${ox},${oy})`);
-    for (const el of svg.querySelectorAll('path, circle, ellipse, line, polyline, polygon, rect')) {
-      geoGroup.appendChild(el.cloneNode(true));
+  // Geometry from layer data as editable SVG elements
+  const geoGroup = document.createElementNS(ns, 'g');
+  geoGroup.setAttribute('id', 'geometry');
+  clipped.appendChild(geoGroup);
+
+  for (const layer of layers) {
+    if (!layer.visible || !layer.geojsonData?.features) continue;
+    const lg = document.createElementNS(ns, 'g');
+    lg.setAttribute('id', layer.name.replace(/[^a-zA-Z0-9_-]/g, '_'));
+    for (const f of layer.geojsonData.features) {
+      const el = featureToSVGEl(ns, f, layer);
+      if (el) lg.appendChild(el);
     }
-    clipped.appendChild(geoGroup);
+    geoGroup.appendChild(lg);
   }
 
   const data = new XMLSerializer().serializeToString(root);

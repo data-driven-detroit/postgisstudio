@@ -29,3 +29,29 @@ uv run main.py serve
 
 Open http://localhost:8001
 
+## Adding a color scheme
+
+Palettes are defined in the `PALETTES` array at the top of `static/app.js`. Each entry controls the basemap tiles and the geometry colors together. Add a new object to the array:
+
+```js
+{
+  name: 'My Palette',
+  tiles: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+  colors: ['#e63946', '#457b9d', '#2a9d8f', '#f4a261', '#6d597a', '#264653'],
+  ramp: [[230,57,70], [69,123,157], [42,157,143], [244,162,97], [109,89,122]],
+},
+```
+
+| Field | What it does |
+|-------|-------------|
+| `name` | Label shown in the palette picker at the bottom-left of the map |
+| `tiles` | Tile URL template. CARTO variants that work without an API key: `dark_all`, `light_all`, `dark_nolabels`, `light_nolabels`, `rastertiles/voyager`, `rastertiles/voyager_nolabels` |
+| `colors` | Array of hex colors cycled through for each layer (categorical symbology also pulls from this) |
+| `ramp` | Array of `[r, g, b]` arrays used to interpolate numeric symbology — values are mapped from the first entry to the last across the min/max range |
+
+Tips:
+- For dark basemaps, use lighter/brighter geometry colors. For light basemaps, use darker/more saturated ones.
+- `colors` should have at least 4-6 entries so layers are visually distinct.
+- `ramp` should have at least 3-5 entries and progress from cool to warm (or vice versa) for readable numeric gradients.
+- The `ramp` values are RGB integers (0-255), not hex — convert with any color picker.
+

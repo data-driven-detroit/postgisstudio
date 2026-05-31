@@ -546,6 +546,10 @@ body {
   gap: 6px;
 }
 
+.map-settings-panel.collapsed {
+  display: none;
+}
+
 .palette-row {
   display: flex;
   gap: 4px;
