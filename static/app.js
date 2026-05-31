@@ -1015,6 +1015,18 @@ function featureToSVGEl(ns, feature, layerObj) {
   if (!geom) return null;
   const color = featureColor(feature, layerObj);
   const hasSym = !!layerObj.symbologyMeta;
+  const gtype = geom.type.replace('Multi', '').toLowerCase();
+
+  const applyMeta = (el) => {
+    el.setAttribute('class', gtype);
+    const props = feature.properties;
+    if (props) {
+      for (const [k, v] of Object.entries(props)) {
+        if (v != null) el.setAttribute('data-' + k.replace(/[^a-zA-Z0-9_-]/g, '_'), v);
+      }
+    }
+    return el;
+  };
 
   const makeCircle = (coord) => {
     const [x, y] = projectCoord(coord);
@@ -1056,15 +1068,17 @@ function featureToSVGEl(ns, feature, layerObj) {
     return g;
   };
 
+  let el;
   switch (geom.type) {
-    case 'Point': return makeCircle(geom.coordinates);
-    case 'MultiPoint': return wrapMulti(geom.coordinates.map(makeCircle));
-    case 'LineString': return makeLine(geom.coordinates);
-    case 'MultiLineString': return wrapMulti(geom.coordinates.map(makeLine));
-    case 'Polygon': return makePoly(geom.coordinates);
-    case 'MultiPolygon': return wrapMulti(geom.coordinates.map(makePoly));
+    case 'Point': el = makeCircle(geom.coordinates); break;
+    case 'MultiPoint': el = wrapMulti(geom.coordinates.map(makeCircle)); break;
+    case 'LineString': el = makeLine(geom.coordinates); break;
+    case 'MultiLineString': el = wrapMulti(geom.coordinates.map(makeLine)); break;
+    case 'Polygon': el = makePoly(geom.coordinates); break;
+    case 'MultiPolygon': el = wrapMulti(geom.coordinates.map(makePoly)); break;
     default: return null;
   }
+  return applyMeta(el);
 }
 
 function exportPNG() {
@@ -1135,13 +1149,14 @@ function exportSVG() {
 
   // Background
   const bg = document.createElementNS(ns, 'rect');
+  bg.setAttribute('id', 'background');
   bg.setAttribute('width', w); bg.setAttribute('height', h);
   bg.setAttribute('fill', '#1a1f22');
   clipped.appendChild(bg);
 
   // Embed tiles as base64 images
   const tileGroup = document.createElementNS(ns, 'g');
-  tileGroup.setAttribute('id', 'tiles');
+  tileGroup.setAttribute('id', 'basemap');
   clipped.appendChild(tileGroup);
 
   for (const tile of mapEl.querySelectorAll('.leaflet-tile-pane img')) {
@@ -1170,12 +1185,15 @@ function exportSVG() {
 
   for (const layer of layers) {
     if (!layer.visible || !layer.geojsonData?.features) continue;
+    const slug = layer.name.replace(/[^a-zA-Z0-9_-]/g, '_');
     const lg = document.createElementNS(ns, 'g');
-    lg.setAttribute('id', layer.name.replace(/[^a-zA-Z0-9_-]/g, '_'));
-    for (const f of layer.geojsonData.features) {
+    lg.setAttribute('id', slug);
+    layer.geojsonData.features.forEach((f, i) => {
       const el = featureToSVGEl(ns, f, layer);
-      if (el) lg.appendChild(el);
-    }
+      if (!el) return;
+      el.setAttribute('id', slug + '_' + i);
+      lg.appendChild(el);
+    });
     geoGroup.appendChild(lg);
   }
 
