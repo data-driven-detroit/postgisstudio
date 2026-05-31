@@ -31,27 +31,36 @@ Open http://localhost:8001
 
 ## Adding a color scheme
 
-Palettes are defined in the `PALETTES` array at the top of `static/app.js`. Each entry controls the basemap tiles and the geometry colors together. Add a new object to the array:
+Open `static/app.js` and find the `PALETTES` array near the top of the file. Each palette is a basemap + a set of colors that get applied to your query geometries. To add your own, copy one of the existing entries and modify it:
 
 ```js
-{
-  name: 'My Palette',
-  tiles: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-  colors: ['#e63946', '#457b9d', '#2a9d8f', '#f4a261', '#6d597a', '#264653'],
-  ramp: [[230,57,70], [69,123,157], [42,157,143], [244,162,97], [109,89,122]],
-},
+  {
+    name: 'My Palette',          // shows up in the picker at the bottom-left of the map
+    tiles: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',  // the map background
+    colors: ['#e63946', '#457b9d', '#2a9d8f', '#f4a261', '#6d597a', '#264653'],
+    ramp:   [[230,57,70], [69,123,157], [42,157,143], [244,162,97], [109,89,122]],
+  },
 ```
 
-| Field | What it does |
-|-------|-------------|
-| `name` | Label shown in the palette picker at the bottom-left of the map |
-| `tiles` | Tile URL template. CARTO variants that work without an API key: `dark_all`, `light_all`, `dark_nolabels`, `light_nolabels`, `rastertiles/voyager`, `rastertiles/voyager_nolabels` |
-| `colors` | Array of hex colors cycled through for each layer (categorical symbology also pulls from this) |
-| `ramp` | Array of `[r, g, b]` arrays used to interpolate numeric symbology — values are mapped from the first entry to the last across the min/max range |
+### `colors` — the layer colors
 
-Tips:
-- For dark basemaps, use lighter/brighter geometry colors. For light basemaps, use darker/more saturated ones.
-- `colors` should have at least 4-6 entries so layers are visually distinct.
-- `ramp` should have at least 3-5 entries and progress from cool to warm (or vice versa) for readable numeric gradients.
-- The `ramp` values are RGB integers (0-255), not hex — convert with any color picker.
+These are hex colors. When you run queries, Layer 1 gets the first color, Layer 2 gets the second, and so on (wrapping around). If you use the "color by column" dropdown with a text/categorical column, each unique value also pulls from this list. Pick 4-6 colors that are visually distinct from each other and visible against your basemap.
 
+### `ramp` — the numeric gradient
+
+This is only used when you "color by column" on a **numeric** column (population, area, etc.). The values get interpolated across this gradient from min to max. Each entry is `[red, green, blue]` with values 0-255 (not hex). A 3-5 color ramp that goes from cool to warm works well. You can convert hex to RGB with any color picker — for example `#e63946` becomes `[230, 57, 70]`.
+
+### `tiles` — the basemap
+
+This is a CARTO tile URL. Replace the part between `/com/` and `/{z}` with one of these (all free, no API key):
+
+| Value | Look |
+|-------|------|
+| `dark_all` | Dark with labels |
+| `dark_nolabels` | Dark without labels |
+| `light_all` | Light with labels |
+| `light_nolabels` | Light without labels |
+| `rastertiles/voyager` | Color with labels |
+| `rastertiles/voyager_nolabels` | Color without labels |
+
+Dark basemaps need lighter/brighter geometry colors. Light basemaps need darker/more saturated ones — otherwise your layers won't be visible against the background.
