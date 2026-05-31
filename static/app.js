@@ -1,25 +1,50 @@
-import { EditorView, basicSetup, PostgreSQL, schemaCompletionSource, LanguageSupport, oneDark, keymap, vim, Prec, Compartment } from "./vendor/codemirror-bundle.js";
+import { EditorView, basicSetup, PostgreSQL, schemaCompletionSource, LanguageSupport, oneDark, keymap, Prec, Compartment } from "./vendor/codemirror-bundle.js";
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/static/sw.js");
 }
 
 // --- Constants ---
-const COLORS = [
-    '#a7c080',
-    '#7fbbb3',
-    '#83c092',
-    '#d699b6',
-    '#dbbc7f',
-    '#e69875',
+const TILE_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> ' +
+  '&copy; <a href="https://carto.com/attributions">CARTO</a>';
+
+const PALETTES = [
+  {
+    name: 'Everforest',
+    tiles: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    colors: ['#a7c080', '#7fbbb3', '#83c092', '#d699b6', '#dbbc7f', '#e69875'],
+    ramp: [[127,187,179], [131,192,146], [219,188,127], [230,126,128], [214,153,182]],
+  },
+  {
+    name: 'Nord',
+    tiles: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    colors: ['#88c0d0', '#a3be8c', '#ebcb8b', '#bf616a', '#b48ead', '#81a1c1'],
+    ramp: [[136,192,208], [163,190,140], [235,203,139], [191,97,106], [180,142,173]],
+  },
+  {
+    name: 'Ember',
+    tiles: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    colors: ['#e76f51', '#f4a261', '#e9c46a', '#a8dadc', '#457b9d', '#d4a373'],
+    ramp: [[231,111,81], [244,162,97], [233,196,106], [168,218,220], [69,123,157]],
+  },
+  {
+    name: 'Daylight',
+    tiles: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    colors: ['#264653', '#2a9d8f', '#e9c46a', '#f4a261', '#e76f51', '#7b2cbf'],
+    ramp: [[38,70,83], [42,157,143], [233,196,106], [244,162,97], [231,111,81]],
+  },
+  {
+    name: 'Voyager',
+    tiles: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    colors: ['#e63946', '#457b9d', '#2a9d8f', '#f4a261', '#6d597a', '#264653'],
+    ramp: [[42,157,143], [69,123,157], [244,162,97], [230,57,70], [109,89,122]],
+  },
 ];
-const RAMP = [
-  [127, 187, 179],  // --blue   #7fbbb3
-  [131, 192, 146],  // --aqua   #83c092
-  [219, 188, 127],  // --yellow #dbbc7f
-  [230, 126, 128],  // --red    #e67e80
-  [214, 153, 182],  // --purple #d699b6
-];
+
+let currentPaletteIndex = 0;
+let COLORS = PALETTES[0].colors;
+let RAMP = PALETTES[0].ramp;
 
 let colorIndex = 0;
 let layerCounter = 0;
@@ -41,7 +66,6 @@ const editor = new EditorView({
   parent: document.getElementById("editor-container"),
   doc: "SELECT * FROM ",
   extensions: [
-    vim(),
     Prec.high(runKeymap),
     basicSetup,
     new LanguageSupport(PostgreSQL.language),
@@ -60,22 +84,54 @@ fetch("/api/schema").then(r => r.json()).then(schema => {
   });
 });
 
-// Prevent Escape from blurring the editor. Must be a non-capture listener
-// so it fires AFTER CodeMirror's own handler (CodeMirror skips key processing
-// when defaultPrevented is already true, which would break vim).
-editor.contentDOM.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") e.preventDefault();
-});
-
 // --- Leaflet Map ---
 const map = L.map("map").setView([42.35, -83.1], 10);
-L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-  attribution:
-    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> ' +
-    '&copy; <a href="https://carto.com/attributions">CARTO</a>',
+let tileLayer = L.tileLayer(PALETTES[0].tiles, {
+  attribution: TILE_ATTRIBUTION,
   subdomains: "abcd",
   maxZoom: 19,
+  crossOrigin: "anonymous",
 }).addTo(map);
+
+// --- Map Settings Control ---
+const MapSettings = L.Control.extend({
+  options: { position: 'bottomleft' },
+  onAdd() {
+    const wrap = L.DomUtil.create('div', 'map-settings');
+    L.DomEvent.disableClickPropagation(wrap);
+    L.DomEvent.disableScrollPropagation(wrap);
+
+    const panel = L.DomUtil.create('div', 'map-settings-panel', wrap);
+    panel.hidden = true;
+
+    const row = L.DomUtil.create('div', 'palette-row', panel);
+    PALETTES.forEach((p, i) => {
+      const btn = L.DomUtil.create('button', 'palette-btn', row);
+      btn.textContent = p.name;
+      if (i === 0) btn.classList.add('active');
+      btn.addEventListener('click', () => switchPalette(i));
+    });
+
+    const exportRow = L.DomUtil.create('div', 'export-row', panel);
+    const pngBtn = L.DomUtil.create('button', 'export-btn', exportRow);
+    pngBtn.textContent = 'Export PNG';
+    pngBtn.addEventListener('click', exportPNG);
+    const svgBtn = L.DomUtil.create('button', 'export-btn', exportRow);
+    svgBtn.textContent = 'Export SVG';
+    svgBtn.addEventListener('click', exportSVG);
+
+    const toggle = L.DomUtil.create('button', 'map-settings-toggle', wrap);
+    toggle.textContent = '\u25B8';
+    toggle.title = 'Map settings';
+    toggle.addEventListener('click', () => {
+      panel.hidden = !panel.hidden;
+      toggle.textContent = panel.hidden ? '\u25B8' : '\u25C2';
+    });
+
+    return wrap;
+  },
+});
+new MapSettings().addTo(map);
 
 // --- UI Elements ---
 const btnRun = document.getElementById("btn-run");
@@ -869,12 +925,181 @@ function esc(str) {
   return d.innerHTML;
 }
 
+// --- Palette & Export ---
+function switchPalette(index, skipLayers) {
+  currentPaletteIndex = index;
+  const p = PALETTES[index];
+  COLORS = p.colors;
+  RAMP = p.ramp;
+  map.removeLayer(tileLayer);
+  tileLayer = L.tileLayer(p.tiles, {
+    attribution: TILE_ATTRIBUTION,
+    subdomains: "abcd",
+    maxZoom: 19,
+    crossOrigin: "anonymous",
+  }).addTo(map);
+  if (!skipLayers) {
+    layers.forEach((layer, i) => {
+      layer.color = COLORS[i % COLORS.length];
+      rebuildLayerStyle(layer);
+    });
+    renderLayerList();
+  }
+  syncLayerZOrder();
+  document.querySelectorAll('.palette-btn').forEach((btn, i) => {
+    btn.classList.toggle('active', i === index);
+  });
+}
+
+async function exportPNG() {
+  setStatus('Exporting PNG...');
+  const mapEl = document.getElementById('map');
+  const rect = mapEl.getBoundingClientRect();
+  const canvas = document.createElement('canvas');
+  canvas.width = rect.width;
+  canvas.height = rect.height;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#1a1f22';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Tiles
+  for (const tile of mapEl.querySelectorAll('.leaflet-tile-pane img')) {
+    if (!tile.complete || tile.naturalWidth === 0) continue;
+    try {
+      const tr = tile.getBoundingClientRect();
+      ctx.drawImage(tile, tr.left - rect.left, tr.top - rect.top, tr.width, tr.height);
+    } catch (e) { /* skip CORS-blocked tiles */ }
+  }
+
+  // SVG overlay (vector layers)
+  const svg = mapEl.querySelector('.leaflet-overlay-pane svg');
+  if (svg) {
+    const svgClone = svg.cloneNode(true);
+    svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    const data = new XMLSerializer().serializeToString(svgClone);
+    const blob = new Blob([data], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    try {
+      await new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          const sr = svg.getBoundingClientRect();
+          ctx.drawImage(img, sr.left - rect.left, sr.top - rect.top, sr.width, sr.height);
+          resolve();
+        };
+        img.onerror = reject;
+        img.src = url;
+      });
+    } catch (e) { /* SVG render failed */ }
+    URL.revokeObjectURL(url);
+  }
+
+  canvas.toBlob((b) => {
+    if (!b) { setStatus('PNG export failed'); return; }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(b);
+    a.download = 'map.png';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    setStatus('PNG exported');
+  }, 'image/png');
+}
+
+async function exportSVG() {
+  setStatus('Exporting SVG...');
+  const mapEl = document.getElementById('map');
+  const rect = mapEl.getBoundingClientRect();
+  const w = rect.width;
+  const h = rect.height;
+
+  const ns = 'http://www.w3.org/2000/svg';
+  const xlink = 'http://www.w3.org/1999/xlink';
+  const root = document.createElementNS(ns, 'svg');
+  root.setAttribute('xmlns', ns);
+  root.setAttribute('xmlns:xlink', xlink);
+  root.setAttribute('width', w);
+  root.setAttribute('height', h);
+  root.setAttribute('viewBox', `0 0 ${w} ${h}`);
+
+  // Clip everything to the map bounds
+  const defs = document.createElementNS(ns, 'defs');
+  const clipPath = document.createElementNS(ns, 'clipPath');
+  clipPath.setAttribute('id', 'map-clip');
+  const clipRect = document.createElementNS(ns, 'rect');
+  clipRect.setAttribute('width', w);
+  clipRect.setAttribute('height', h);
+  clipPath.appendChild(clipRect);
+  defs.appendChild(clipPath);
+  root.appendChild(defs);
+
+  const clipped = document.createElementNS(ns, 'g');
+  clipped.setAttribute('clip-path', 'url(#map-clip)');
+  root.appendChild(clipped);
+
+  // Background
+  const bg = document.createElementNS(ns, 'rect');
+  bg.setAttribute('width', w);
+  bg.setAttribute('height', h);
+  bg.setAttribute('fill', '#1a1f22');
+  clipped.appendChild(bg);
+
+  // Embed tiles as base64 images
+  const tileGroup = document.createElementNS(ns, 'g');
+  tileGroup.setAttribute('id', 'tiles');
+  clipped.appendChild(tileGroup);
+
+  for (const tile of mapEl.querySelectorAll('.leaflet-tile-pane img')) {
+    if (!tile.complete || tile.naturalWidth === 0) continue;
+    try {
+      const tr = tile.getBoundingClientRect();
+      const c = document.createElement('canvas');
+      c.width = tile.naturalWidth;
+      c.height = tile.naturalHeight;
+      c.getContext('2d').drawImage(tile, 0, 0);
+      const dataUrl = c.toDataURL('image/png');
+      const img = document.createElementNS(ns, 'image');
+      img.setAttribute('x', tr.left - rect.left);
+      img.setAttribute('y', tr.top - rect.top);
+      img.setAttribute('width', tr.width);
+      img.setAttribute('height', tr.height);
+      img.setAttributeNS(xlink, 'href', dataUrl);
+      tileGroup.appendChild(img);
+    } catch (e) { /* skip CORS-blocked tiles */ }
+  }
+
+  // Copy vector geometry as editable SVG paths
+  const svg = mapEl.querySelector('.leaflet-overlay-pane svg');
+  if (svg) {
+    const sr = svg.getBoundingClientRect();
+    const ox = sr.left - rect.left;
+    const oy = sr.top - rect.top;
+    const geoGroup = document.createElementNS(ns, 'g');
+    geoGroup.setAttribute('id', 'geometry');
+    geoGroup.setAttribute('transform', `translate(${ox},${oy})`);
+    for (const el of svg.querySelectorAll('path, circle, ellipse, line, polyline, polygon, rect')) {
+      geoGroup.appendChild(el.cloneNode(true));
+    }
+    clipped.appendChild(geoGroup);
+  }
+
+  const data = new XMLSerializer().serializeToString(root);
+  const blob = new Blob([data], { type: 'image/svg+xml;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'map.svg';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  setStatus('SVG exported');
+}
+
 // --- Session Export/Import ---
 function saveSession() {
   const filename = prompt("Save as:", "session.json");
   if (!filename) return;
   const session = {
     postgisstudio: 1,
+    paletteIndex: currentPaletteIndex,
     editor: editor.state.doc.toString(),
     mapCenter: [map.getCenter().lat, map.getCenter().lng],
     mapZoom: map.getZoom(),
@@ -921,6 +1146,7 @@ function loadSession(file) {
         map.setView(session.mapCenter, session.mapZoom);
       }
 
+      if (session.paletteIndex != null) switchPalette(session.paletteIndex, true);
       colorIndex = session.colorIndex || 0;
 
       // Reconstruct layers

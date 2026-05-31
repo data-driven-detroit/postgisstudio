@@ -513,3 +513,83 @@ body {
   border: 2px dashed var(--green);
   border-radius: 12px;
 }
+
+/* Map settings control */
+.map-settings-toggle {
+  background: var(--bg1);
+  color: var(--fg);
+  border: 1px solid var(--bg3);
+  border-radius: 4px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 12px;
+  opacity: 0.6;
+  transition: opacity 0.12s;
+}
+
+.map-settings-toggle:hover {
+  opacity: 1;
+}
+
+.map-settings-panel {
+  background: var(--bg1);
+  border: 1px solid var(--bg3);
+  border-radius: 4px;
+  padding: 8px;
+  margin-bottom: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.palette-row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.palette-btn {
+  background: var(--bg2);
+  color: var(--fg);
+  border: 1px solid var(--bg3);
+  border-radius: 3px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+}
+
+.palette-btn:hover {
+  border-color: var(--blue);
+}
+
+.palette-btn.active {
+  border-color: var(--aqua);
+  color: var(--aqua);
+}
+
+.export-row {
+  display: flex;
+  gap: 4px;
+}
+
+.export-btn {
+  flex: 1;
+  background: var(--bg2);
+  color: var(--fg);
+  border: 1px solid var(--bg3);
+  border-radius: 3px;
+  padding: 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+}
+
+.export-btn:hover {
+  border-color: var(--green);
+  color: var(--green);
+}
