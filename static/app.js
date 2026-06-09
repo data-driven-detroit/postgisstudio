@@ -17,28 +17,29 @@ const PALETTES = [
     ramp: [[127,187,179], [131,192,146], [219,188,127], [230,126,128], [214,153,182]],
   },
   {
-    name: 'Nord',
-    tiles: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    colors: ['#88c0d0', '#a3be8c', '#ebcb8b', '#bf616a', '#b48ead', '#81a1c1'],
-    ramp: [[136,192,208], [163,190,140], [235,203,139], [191,97,106], [180,142,173]],
-  },
-  {
     name: 'Ember',
     tiles: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
     colors: ['#e76f51', '#f4a261', '#e9c46a', '#a8dadc', '#457b9d', '#d4a373'],
     ramp: [[231,111,81], [244,162,97], [233,196,106], [168,218,220], [69,123,157]],
   },
   {
-    name: 'Daylight',
-    tiles: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-    colors: ['#264653', '#2a9d8f', '#e9c46a', '#f4a261', '#e76f51', '#7b2cbf'],
-    ramp: [[38,70,83], [42,157,143], [233,196,106], [244,162,97], [231,111,81]],
-  },
-  {
     name: 'Voyager',
     tiles: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
     colors: ['#e63946', '#457b9d', '#2a9d8f', '#f4a261', '#6d597a', '#264653'],
     ramp: [[42,157,143], [69,123,157], [244,162,97], [230,57,70], [109,89,122]],
+  },
+  {
+      name: 'D3',
+      tiles: 'https://{s}.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}{r}.png',
+      colors: [
+          "#D97543",
+          "#87AF3F",
+          "#ECBA66",
+          "#58BFAC",
+          "#6596CF",
+          "#CA7FCC",
+      ],
+      ramp: [[234,234,194], [171,224,143], [135,191,155], [97,144,173], [102,104,168]],
   },
 ];
 
