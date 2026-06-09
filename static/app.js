@@ -113,11 +113,14 @@ const MapSettings = L.Control.extend({
 
     const exportRow = L.DomUtil.create('div', 'export-row', panel);
     const pngBtn = L.DomUtil.create('button', 'export-btn', exportRow);
-    pngBtn.textContent = 'Export PNG';
+    pngBtn.textContent = 'PNG';
     pngBtn.addEventListener('click', exportPNG);
     const svgBtn = L.DomUtil.create('button', 'export-btn', exportRow);
-    svgBtn.textContent = 'Export SVG';
+    svgBtn.textContent = 'SVG';
     svgBtn.addEventListener('click', exportSVG);
+    const htmlBtn = L.DomUtil.create('button', 'export-btn', exportRow);
+    htmlBtn.textContent = 'HTML';
+    htmlBtn.addEventListener('click', exportHTML);
 
     const toggle = L.DomUtil.create('button', 'map-settings-toggle', wrap);
     toggle.textContent = '\u25B8';
@@ -1205,6 +1208,163 @@ function exportSVG() {
   a.click();
   URL.revokeObjectURL(a.href);
   setStatus('SVG exported');
+}
+
+function exportHTML() {
+  setStatus('Exporting HTML...');
+  const center = map.getCenter();
+  const zoom = map.getZoom();
+  const palette = PALETTES[currentPaletteIndex];
+
+  // Serialize layer data for embedding
+  const exportLayers = layers
+    .filter(l => l.visible && l.geojsonData?.features?.length)
+    .map(l => ({
+      name: l.name,
+      color: l.color,
+      geojsonData: l.geojsonData,
+      symbologyColumn: l.symbologyColumn,
+      symbologyMeta: l.symbologyMeta ? {
+        type: l.symbologyMeta.type,
+        min: l.symbologyMeta.min,
+        max: l.symbologyMeta.max,
+        colorMap: l.symbologyMeta.colorMap
+          ? Object.fromEntries(l.symbologyMeta.colorMap)
+          : undefined,
+      } : null,
+    }));
+
+  if (exportLayers.length === 0) {
+    setStatus('No visible layers to export');
+    return;
+  }
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PostGIS Studio Export</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>
+<style>
+  body { margin: 0; }
+  #map { width: 100vw; height: 100vh; background: #1a1f22; }
+  .leaflet-popup-content-wrapper { background: #323c41; color: #d3c6aa; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
+  .leaflet-popup-tip { background: #323c41; }
+  .leaflet-popup-content { font-family: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace; font-size: 12px; line-height: 1.5; margin: 10px 14px; }
+  .leaflet-popup-content table { border-collapse: collapse; }
+  .leaflet-popup-content td { padding: 2px 8px 2px 0; vertical-align: top; }
+  .leaflet-popup-content td:first-child { color: #83c092; font-weight: 600; white-space: nowrap; }
+  .leaflet-popup-close-button { color: #d3c6aa !important; }
+  .legend { background: #323c41; color: #d3c6aa; padding: 10px 14px; border-radius: 6px; border: 1px solid #445055; font-family: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace; font-size: 12px; line-height: 1.6; box-shadow: 0 2px 8px rgba(0,0,0,0.3); max-height: 60vh; overflow-y: auto; }
+  .legend-title { font-weight: 600; margin-bottom: 6px; color: #83c092; }
+  .legend-layer { margin-bottom: 8px; }
+  .legend-layer:last-child { margin-bottom: 0; }
+  .legend-layer-name { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+  .legend-swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+  .legend-cat { display: flex; align-items: center; gap: 6px; padding-left: 18px; font-size: 11px; color: #aaa; }
+  .legend-cat .legend-swatch { width: 10px; height: 10px; }
+  .legend-ramp { height: 8px; border-radius: 2px; margin: 4px 0 2px 18px; }
+  .legend-ramp-labels { display: flex; justify-content: space-between; padding-left: 18px; font-size: 10px; color: #aaa; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+var LAYERS = ${JSON.stringify(exportLayers)};
+var RAMP = ${JSON.stringify(palette.ramp)};
+
+function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function lerpColor(t) {
+  t = Math.max(0, Math.min(1, t));
+  var seg = (RAMP.length - 1) * t;
+  var i = Math.min(Math.floor(seg), RAMP.length - 2);
+  var s = seg - i;
+  var a = RAMP[i], b = RAMP[i + 1];
+  var r = Math.round(a[0] + (b[0] - a[0]) * s);
+  var g = Math.round(a[1] + (b[1] - a[1]) * s);
+  var bl = Math.round(a[2] + (b[2] - a[2]) * s);
+  return '#' + ((1 << 24) | (r << 16) | (g << 8) | bl).toString(16).slice(1);
+}
+
+function featureColor(feature, layer) {
+  if (!layer.symbologyMeta) return layer.color;
+  var val = feature.properties && feature.properties[layer.symbologyColumn];
+  if (val == null) return '#555555';
+  var meta = layer.symbologyMeta;
+  if (meta.type === 'numeric') {
+    if (meta.max === meta.min) return lerpColor(0.5);
+    return lerpColor((val - meta.min) / (meta.max - meta.min));
+  }
+  return (meta.colorMap && meta.colorMap[String(val)]) || '#555555';
+}
+
+var map = L.map('map').setView([${center.lat}, ${center.lng}], ${zoom});
+L.tileLayer(${JSON.stringify(palette.tiles)}, {
+  attribution: ${JSON.stringify(TILE_ATTRIBUTION)},
+  subdomains: 'abcd', maxZoom: 19,
+}).addTo(map);
+
+LAYERS.forEach(function(layer) {
+  L.geoJSON(layer.geojsonData, {
+    style: function(feature) {
+      var c = featureColor(feature, layer);
+      return { color: c, weight: 2, fillColor: c, fillOpacity: layer.symbologyMeta ? 0.5 : 0.15 };
+    },
+    pointToLayer: function(feature, latlng) {
+      var c = featureColor(feature, layer);
+      return L.circleMarker(latlng, { radius: 6, color: c, fillColor: c, fillOpacity: layer.symbologyMeta ? 0.7 : 0.5, weight: 2 });
+    },
+    onEachFeature: function(feature, lyr) {
+      if (feature.properties && Object.keys(feature.properties).length > 0) {
+        var rows = Object.entries(feature.properties)
+          .map(function(e) { return '<tr><td>' + esc(e[0]) + '</td><td>' + esc(String(e[1] == null ? '' : e[1])) + '</td></tr>'; })
+          .join('');
+        lyr.bindPopup('<table>' + rows + '</table>', { maxWidth: 400 });
+      }
+    },
+  }).addTo(map);
+});
+
+var legend = L.control({ position: 'topright' });
+legend.onAdd = function() {
+  var div = L.DomUtil.create('div', 'legend');
+  var html = '<div class="legend-title">Legend</div>';
+  LAYERS.forEach(function(layer) {
+    html += '<div class="legend-layer">';
+    html += '<div class="legend-layer-name"><span class="legend-swatch" style="background:' + layer.color + '"></span>' + esc(layer.name) + '</div>';
+    if (layer.symbologyMeta && layer.symbologyColumn) {
+      var meta = layer.symbologyMeta;
+      if (meta.type === 'categorical' && meta.colorMap) {
+        Object.keys(meta.colorMap).forEach(function(key) {
+          html += '<div class="legend-cat"><span class="legend-swatch" style="background:' + meta.colorMap[key] + '"></span>' + esc(key) + '</div>';
+        });
+      } else if (meta.type === 'numeric') {
+        var stops = [];
+        for (var i = 0; i <= 4; i++) stops.push(lerpColor(i / 4));
+        html += '<div class="legend-ramp" style="background:linear-gradient(to right,' + stops.join(',') + ')"></div>';
+        html += '<div class="legend-ramp-labels"><span>' + meta.min + '</span><span>' + layer.symbologyColumn + '</span><span>' + meta.max + '</span></div>';
+      }
+    }
+    html += '</div>';
+  });
+  div.innerHTML = html;
+  return div;
+};
+legend.addTo(map);
+<\/script>
+</body>
+</html>`;
+
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'map.html';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  setStatus('HTML exported');
 }
 
 // --- Session Export/Import ---
