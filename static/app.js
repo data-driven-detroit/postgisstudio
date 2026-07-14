@@ -631,6 +631,39 @@ function updateLayerData(layerObj, sqlText, geojson) {
   syncLayerZOrder();
 }
 
+async function refreshLayer(layerObj) {
+  if (!layerObj.sql || layerObj.source !== "query") return;
+  try {
+    const resp = await fetch("/api/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sql: layerObj.sql }),
+    });
+    const data = await resp.json();
+    if (data.error || !data.has_geometry || !data.features.length) return;
+    if (layerObj.leafletLayer) map.removeLayer(layerObj.leafletLayer);
+    layerObj.geojsonData = { type: "FeatureCollection", features: data.features };
+    computeSymbology(layerObj);
+    layerObj.leafletLayer = makeLeafletLayer(layerObj.geojsonData, layerObj);
+    if (layerObj.visible) {
+      layerObj.leafletLayer.addTo(map);
+      syncLayerZOrder();
+    }
+  } catch (e) { /* silent — retry next interval */ }
+}
+
+function toggleAutoRefresh(layerObj) {
+  layerObj.autoRefresh = !layerObj.autoRefresh;
+  if (layerObj.autoRefresh) {
+    refreshLayer(layerObj);
+    layerObj.refreshTimer = setInterval(() => refreshLayer(layerObj), 30000);
+  } else {
+    clearInterval(layerObj.refreshTimer);
+    layerObj.refreshTimer = null;
+  }
+  renderLayerList();
+}
+
 async function runQuery() {
   const active = selectedLayerId && layers.find(l => l.id === selectedLayerId);
   if (active?.source === "file") return;
@@ -685,6 +718,7 @@ function addLayer() {
     id, name, sql: "", source: "query", color, visible: true,
     leafletLayer: null, geojsonData: null,
     symbologyColumn: null, symbologyMeta: null,
+    autoRefresh: false, refreshTimer: null,
   };
   layers.push(layerObj);
   selectedLayerId = id;
@@ -707,6 +741,7 @@ function addLayerFromData(sqlText, geojson) {
     id, name, sql: sqlText, source: "query", color, visible: true,
     leafletLayer: null, geojsonData,
     symbologyColumn: null, symbologyMeta: null,
+    autoRefresh: false, refreshTimer: null,
   };
   computeSymbology(layerObj);
   const leafletLayer = makeLeafletLayer(geojsonData, layerObj).addTo(map);
@@ -891,12 +926,23 @@ function renderLayerList() {
       });
     });
 
+    const refresh = document.createElement("span");
+    refresh.className = `layer-refresh ${layer.autoRefresh ? "active" : ""}`;
+    refresh.textContent = "\u21BB";
+    refresh.title = layer.autoRefresh ? "Auto-refresh on (30s) — click to stop" : "Auto-refresh off — click to start (30s)";
+    if (layer.source === "file" || !layer.sql) refresh.style.display = "none";
+    refresh.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleAutoRefresh(layer);
+    });
+
     const remove = document.createElement("span");
     remove.className = "layer-remove";
     remove.textContent = "\u2715";
     remove.title = "Remove layer";
     remove.addEventListener("click", (e) => {
       e.stopPropagation();
+      if (layer.refreshTimer) clearInterval(layer.refreshTimer);
       map.removeLayer(layer.leafletLayer);
       if (selectedLayerId === layer.id) selectedLayerId = null;
       const idx = layers.indexOf(layer);
@@ -908,7 +954,7 @@ function renderLayerList() {
     dragHandle.className = "layer-drag-handle";
     dragHandle.textContent = "\u2807";
 
-    li.append(dragHandle, swatch, nameSpan, symbSelect, toggle, save, remove);
+    li.append(dragHandle, swatch, nameSpan, symbSelect, toggle, refresh, save, remove);
     layerList.appendChild(li);
   }
 }
@@ -1257,16 +1303,20 @@ function exportHTML() {
   .leaflet-popup-content td { padding: 2px 8px 2px 0; vertical-align: top; }
   .leaflet-popup-content td:first-child { color: #83c092; font-weight: 600; white-space: nowrap; }
   .leaflet-popup-close-button { color: #d3c6aa !important; }
-  .legend { background: #323c41; color: #d3c6aa; padding: 10px 14px; border-radius: 6px; border: 1px solid #445055; font-family: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace; font-size: 12px; line-height: 1.6; box-shadow: 0 2px 8px rgba(0,0,0,0.3); max-height: 60vh; overflow-y: auto; }
-  .legend-title { font-weight: 600; margin-bottom: 6px; color: #83c092; }
-  .legend-layer { margin-bottom: 8px; }
+  .legend { background: #323c41; color: #d3c6aa; padding: 14px 18px; border-radius: 6px; border: 1px solid #445055; font-family: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace; font-size: 13px; line-height: 1.7; box-shadow: 0 2px 8px rgba(0,0,0,0.3); max-height: 60vh; overflow-y: auto; min-width: 160px; }
+  .legend-title { font-weight: 600; margin-bottom: 8px; color: #83c092; font-size: 14px; }
+  .legend-layer { margin-bottom: 10px; }
   .legend-layer:last-child { margin-bottom: 0; }
-  .legend-layer-name { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
-  .legend-swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
-  .legend-cat { display: flex; align-items: center; gap: 6px; padding-left: 18px; font-size: 11px; color: #aaa; }
-  .legend-cat .legend-swatch { width: 10px; height: 10px; }
-  .legend-ramp { height: 8px; border-radius: 2px; margin: 4px 0 2px 18px; }
-  .legend-ramp-labels { display: flex; justify-content: space-between; padding-left: 18px; font-size: 10px; color: #aaa; }
+  .legend-layer-name { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; cursor: pointer; user-select: none; transition: opacity 0.15s; }
+  .legend-layer-name:hover { opacity: 0.8; }
+  .legend-layer.hidden .legend-layer-name { opacity: 0.35; }
+  .legend-layer.hidden .legend-detail { opacity: 0.35; }
+  .legend-toggle { font-size: 15px; flex-shrink: 0; width: 16px; text-align: center; }
+  .legend-swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+  .legend-cat { display: flex; align-items: center; gap: 8px; padding-left: 38px; font-size: 12px; color: #aaa; }
+  .legend-cat .legend-swatch { width: 11px; height: 11px; }
+  .legend-ramp { height: 10px; border-radius: 2px; margin: 4px 0 2px 38px; }
+  .legend-ramp-labels { display: flex; justify-content: space-between; padding-left: 38px; font-size: 11px; color: #aaa; }
 </style>
 </head>
 <body>
@@ -1274,6 +1324,7 @@ function exportHTML() {
 <script>
 var LAYERS = ${JSON.stringify(exportLayers)};
 var RAMP = ${JSON.stringify(palette.ramp)};
+var leafletLayers = [];
 
 function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
@@ -1308,7 +1359,7 @@ L.tileLayer(${JSON.stringify(palette.tiles)}, {
 }).addTo(map);
 
 LAYERS.forEach(function(layer) {
-  L.geoJSON(layer.geojsonData, {
+  var lyr = L.geoJSON(layer.geojsonData, {
     style: function(feature) {
       var c = featureColor(feature, layer);
       return { color: c, weight: 2, fillColor: c, fillOpacity: layer.symbologyMeta ? 0.5 : 0.15 };
@@ -1317,26 +1368,30 @@ LAYERS.forEach(function(layer) {
       var c = featureColor(feature, layer);
       return L.circleMarker(latlng, { radius: 6, color: c, fillColor: c, fillOpacity: layer.symbologyMeta ? 0.7 : 0.5, weight: 2 });
     },
-    onEachFeature: function(feature, lyr) {
+    onEachFeature: function(feature, fl) {
       if (feature.properties && Object.keys(feature.properties).length > 0) {
         var rows = Object.entries(feature.properties)
           .map(function(e) { return '<tr><td>' + esc(e[0]) + '</td><td>' + esc(String(e[1] == null ? '' : e[1])) + '</td></tr>'; })
           .join('');
-        lyr.bindPopup('<table>' + rows + '</table>', { maxWidth: 400 });
+        fl.bindPopup('<table>' + rows + '</table>', { maxWidth: 400 });
       }
     },
   }).addTo(map);
+  leafletLayers.push(lyr);
 });
 
 var legend = L.control({ position: 'topright' });
 legend.onAdd = function() {
   var div = L.DomUtil.create('div', 'legend');
-  var html = '<div class="legend-title">Legend</div>';
-  LAYERS.forEach(function(layer) {
-    html += '<div class="legend-layer">';
-    html += '<div class="legend-layer-name"><span class="legend-swatch" style="background:' + layer.color + '"></span>' + esc(layer.name) + '</div>';
+  L.DomEvent.disableClickPropagation(div);
+  L.DomEvent.disableScrollPropagation(div);
+  var html = '<div class="legend-title">Layers</div>';
+  LAYERS.forEach(function(layer, idx) {
+    html += '<div class="legend-layer" id="legend-' + idx + '">';
+    html += '<div class="legend-layer-name" data-idx="' + idx + '"><span class="legend-toggle">\\u25C9</span><span class="legend-swatch" style="background:' + layer.color + '"></span>' + esc(layer.name) + '</div>';
     if (layer.symbologyMeta && layer.symbologyColumn) {
       var meta = layer.symbologyMeta;
+      html += '<div class="legend-detail">';
       if (meta.type === 'categorical' && meta.colorMap) {
         Object.keys(meta.colorMap).forEach(function(key) {
           html += '<div class="legend-cat"><span class="legend-swatch" style="background:' + meta.colorMap[key] + '"></span>' + esc(key) + '</div>';
@@ -1347,10 +1402,21 @@ legend.onAdd = function() {
         html += '<div class="legend-ramp" style="background:linear-gradient(to right,' + stops.join(',') + ')"></div>';
         html += '<div class="legend-ramp-labels"><span>' + meta.min + '</span><span>' + layer.symbologyColumn + '</span><span>' + meta.max + '</span></div>';
       }
+      html += '</div>';
     }
     html += '</div>';
   });
   div.innerHTML = html;
+  div.querySelectorAll('.legend-layer-name').forEach(function(el) {
+    el.addEventListener('click', function() {
+      var i = parseInt(el.dataset.idx);
+      var container = document.getElementById('legend-' + i);
+      var visible = map.hasLayer(leafletLayers[i]);
+      if (visible) { map.removeLayer(leafletLayers[i]); } else { leafletLayers[i].addTo(map); }
+      container.classList.toggle('hidden', visible);
+      el.querySelector('.legend-toggle').textContent = visible ? '\\u25CB' : '\\u25C9';
+    });
+  });
   return div;
 };
 legend.addTo(map);
@@ -1380,9 +1446,9 @@ function saveSession() {
     colorIndex,
     selectedLayerId,
     layers: layers.map(l => ({
-      id: l.id, name: l.name, sql: l.sql, color: l.color,
+      id: l.id, name: l.name, sql: l.sql, source: l.source, color: l.color,
       visible: l.visible, geojsonData: l.geojsonData,
-      symbologyColumn: l.symbologyColumn,
+      symbologyColumn: l.symbologyColumn, autoRefresh: l.autoRefresh,
     })),
   };
   const blob = new Blob([JSON.stringify(session, null, 2)], { type: "application/json" });
@@ -1407,7 +1473,10 @@ function loadSession(file) {
       hideError();
 
       // Clear existing layers from map
-      for (const l of layers) map.removeLayer(l.leafletLayer);
+      for (const l of layers) {
+        if (l.refreshTimer) clearInterval(l.refreshTimer);
+        map.removeLayer(l.leafletLayer);
+      }
       layers.length = 0;
 
       // Restore editor content
@@ -1427,14 +1496,20 @@ function loadSession(file) {
       let maxNum = 0;
       for (const sl of session.layers) {
         const layerObj = {
-          id: sl.id, name: sl.name, sql: sl.sql, color: sl.color,
-          visible: sl.visible, leafletLayer: null, geojsonData: sl.geojsonData,
+          id: sl.id, name: sl.name, sql: sl.sql, source: sl.source || "query",
+          color: sl.color, visible: sl.visible, leafletLayer: null,
+          geojsonData: sl.geojsonData,
           symbologyColumn: sl.symbologyColumn || null, symbologyMeta: null,
+          autoRefresh: false, refreshTimer: null,
         };
         computeSymbology(layerObj);
         const leafletLayer = makeLeafletLayer(sl.geojsonData, layerObj);
         if (sl.visible) leafletLayer.addTo(map);
         layerObj.leafletLayer = leafletLayer;
+        if (sl.autoRefresh && sl.sql && sl.source !== "file") {
+          layerObj.autoRefresh = true;
+          layerObj.refreshTimer = setInterval(() => refreshLayer(layerObj), 30000);
+        }
         layers.push(layerObj);
         const m = sl.id.match(/^layer-(\d+)$/);
         if (m) maxNum = Math.max(maxNum, Number(m[1]));

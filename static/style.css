@@ -315,6 +315,28 @@ body {
   color: var(--aqua);
 }
 
+.layer-refresh {
+  padding: 0 4px;
+  font-size: 14px;
+  color: var(--bg3);
+  cursor: pointer;
+  transition: color 0.12s;
+}
+
+.layer-refresh:hover {
+  color: var(--yellow);
+}
+
+.layer-refresh.active {
+  color: var(--yellow);
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .layer-save {
   padding: 0 4px;
   font-size: 16px;
