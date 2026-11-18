@@ -44,6 +44,7 @@
   </div>
 
   <script src="/static/vendor/leaflet/leaflet.js"></script>
+  <script>window.CARTO_API_KEY = {{ carto_api_key | tojson }};</script>
   <script type="module" src="/static/app.js"></script>
 </body>
 </html>

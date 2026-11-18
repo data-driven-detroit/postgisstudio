@@ -9,6 +9,16 @@ const TILE_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> ' +
   '&copy; <a href="https://carto.com/attributions">CARTO</a>';
 
+// CARTO basemaps require an API key (set CARTO_API_KEY in .env)
+const CARTO_API_KEY = window.CARTO_API_KEY || '';
+if (!CARTO_API_KEY) {
+  console.warn('CARTO_API_KEY is not set; basemap tiles will show an "API KEY REQUIRED" watermark.');
+}
+function tileUrl(url) {
+  if (!CARTO_API_KEY) return url;
+  return url + (url.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(CARTO_API_KEY);
+}
+
 const PALETTES = [
   {
     name: 'Everforest',
@@ -87,7 +97,7 @@ fetch("/api/schema").then(r => r.json()).then(schema => {
 
 // --- Leaflet Map ---
 const map = L.map("map").setView([42.35, -83.1], 10);
-let tileLayer = L.tileLayer(PALETTES[0].tiles, {
+let tileLayer = L.tileLayer(tileUrl(PALETTES[0].tiles), {
   attribution: TILE_ATTRIBUTION,
   subdomains: "abcd",
   maxZoom: 19,
@@ -981,7 +991,7 @@ function switchPalette(index, skipLayers) {
   COLORS = p.colors;
   RAMP = p.ramp;
   map.removeLayer(tileLayer);
-  tileLayer = L.tileLayer(p.tiles, {
+  tileLayer = L.tileLayer(tileUrl(p.tiles), {
     attribution: TILE_ATTRIBUTION,
     subdomains: "abcd",
     maxZoom: 19,
@@ -1354,7 +1364,7 @@ function featureColor(feature, layer) {
 }
 
 var map = L.map('map').setView([${center.lat}, ${center.lng}], ${zoom});
-L.tileLayer(${JSON.stringify(palette.tiles)}, {
+L.tileLayer(${JSON.stringify(tileUrl(palette.tiles))}, {
   attribution: ${JSON.stringify(TILE_ATTRIBUTION)},
   subdomains: 'abcd', maxZoom: 19,
 }).addTo(map);

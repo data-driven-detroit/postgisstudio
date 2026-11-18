@@ -30,7 +30,11 @@ templates = Jinja2Templates(directory="templates")
 
 @app.get("/")
 async def index(request: Request):
-    return templates.TemplateResponse(request, "index.html")
+    return templates.TemplateResponse(
+        request,
+        "index.html",
+        {"carto_api_key": os.environ.get("CARTO_API_KEY", "")},
+    )
 
 
 @app.get("/api/schema")

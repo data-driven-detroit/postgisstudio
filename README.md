@@ -22,6 +22,7 @@ Clone this project (not tested on Windows, but works well with wsl)
 cp .env.example .env
 
 # Edit .env with your PostGIS database URL -- you'll have to choose 'data' or 'ipds' (or others)
+# Also set CARTO_API_KEY (free key: https://carto.com/basemaps/apikey/) or the basemap will be watermarked
 
 uv sync
 uv run main.py serve
@@ -52,7 +53,7 @@ This is only used when you "color by column" on a **numeric** column (population
 
 ### `tiles` — the basemap
 
-This is a CARTO tile URL. Replace the part between `/com/` and `/{z}` with one of these (all free, no API key):
+This is a CARTO tile URL. Replace the part between `/com/` and `/{z}` with one of these. The `?key=` parameter is added automatically from `CARTO_API_KEY` in `.env` — don't put it in the URL yourself:
 
 | Value | Look |
 |-------|------|
